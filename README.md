@@ -97,6 +97,7 @@ That's it. The script will automatically:
 | `results/graphs/03_roc_curves.png` | Multi-class ROC curves |
 | `results/graphs/04_accuracy_vs_time.png` | Accuracy vs training time scatter |
 | `results/graphs/05_radar_chart.png` | Radar chart model comparison |
+| `results/graphs/06_feature_importance.png` | Random Forest feature ablation study |
 
 ---
 
@@ -112,8 +113,8 @@ python run_pipeline.py --video /path/to/your/video.mp4
 # Skip retraining (use existing saved models)
 python run_pipeline.py --skip-train
 
-# Change processing resolution (default 1280)
-python run_pipeline.py --width 960
+# Change processing resolution (0 = auto-detect based on VRAM, 1920 = Full HD)
+python run_pipeline.py --width 1920
 ```
 
 ---
