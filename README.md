@@ -29,8 +29,8 @@
 ### 1 — Clone & Setup Environment
 
 ```bash
-git clone https://github.com/NightCrawler909/Gate.git
-cd Gate
+git clone https://github.com/NightCrawler909/major-project-final.git
+cd major-project-final
 
 python -m venv .venv
 # Linux/Mac
