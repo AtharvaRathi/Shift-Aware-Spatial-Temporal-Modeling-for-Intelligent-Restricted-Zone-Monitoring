@@ -1,80 +1,107 @@
 import pandas as pd
 import numpy as np
+import os
 
-def generate_dataset(num_rows=5000, output_path='custom_dataset.csv'):
+INTENT_PARAMS = {
+    'passing_by':       dict(speed_mu=15, speed_sd=4, dist_mu=350, dist_sd=100, time_near_mu=3,  time_near_sd=5,  stops_mu=0, stops_sd=0.5),
+    'loitering':        dict(speed_mu=2,  speed_sd=1.5,dist_mu=80,  dist_sd=40,  time_near_mu=45, time_near_sd=20, stops_mu=2, stops_sd=1.5),
+    'scouting':         dict(speed_mu=5,  speed_sd=2,  dist_mu=30,  dist_sd=20,  time_near_mu=70, time_near_sd=25, stops_mu=4, stops_sd=2),
+    'active_intrusion': dict(speed_mu=28, speed_sd=8,  dist_mu=5,   dist_sd=10,  time_near_mu=15, time_near_sd=10, stops_mu=1, stops_sd=1),
+}
+PROBS = [0.55, 0.25, 0.12, 0.08]
+CLASSES = list(INTENT_PARAMS.keys())
+
+
+def generate_tabular_dataset(num_rows=10000, output_path='ml/data/tabular_dataset.csv'):
+    """Generates a flat, tabular (snapshot) dataset for RF/XGBoost training."""
     np.random.seed(42)
-    
-    # Realistic probability distributions for human behavior
-    intents = np.random.choice(
-        ['passing_by', 'loitering', 'scouting', 'active_intrusion'], 
-        size=num_rows, 
-        p=[0.55, 0.25, 0.12, 0.08] # 55% normal, 25% loitering, 12% scouting, 8% invading
-    )
-    
-    data = {
-        'speed_variance': np.zeros(num_rows),
-        'distance_to_restricted_zone': np.zeros(num_rows),
-        'time_near_boundary': np.zeros(num_rows),
-        'time_inside_zone': np.zeros(num_rows),
-        'sudden_stops': np.zeros(num_rows),
-        'carrying_baggage': np.random.choice([0, 1], num_rows, p=[0.8, 0.2]),
-        'time_of_day_multiplier': np.random.uniform(0.8, 2.0, num_rows)
-    }
-    
-    scores = []
-    
-    # Inject Gaussian Noise and Overlaps for realistic confusion boundaries
-    for i, intent in enumerate(intents):
-        if intent == 'passing_by':
-            data['speed_variance'][i] = max(0, np.random.normal(4.0, 1.5))
-            data['distance_to_restricted_zone'][i] = max(10, np.random.normal(300, 120))
-            data['time_near_boundary'][i] = max(0, np.random.normal(5, 8))
-            data['time_inside_zone'][i] = 0
-            data['sudden_stops'][i] = max(0, int(np.random.normal(0, 1)))
-            base_score = np.random.normal(15, 10)
-            
-        elif intent == 'loitering':
-            data['speed_variance'][i] = max(0, np.random.normal(1.2, 0.9))
-            data['distance_to_restricted_zone'][i] = max(5, np.random.normal(70, 40))
-            data['time_near_boundary'][i] = max(10, np.random.normal(50, 25))
-            data['time_inside_zone'][i] = 0
-            data['sudden_stops'][i] = max(0, int(np.random.normal(2, 2)))
-            base_score = np.random.normal(50, 15)
-            
-        elif intent == 'scouting':
-            # Scouting looks like loitering but closer with more stops
-            data['speed_variance'][i] = max(0, np.random.normal(1.5, 1.2))
-            data['distance_to_restricted_zone'][i] = max(1, np.random.normal(25, 20))
-            data['time_near_boundary'][i] = max(20, np.random.normal(80, 30))
-            data['time_inside_zone'][i] = 0
-            data['sudden_stops'][i] = max(1, int(np.random.normal(5, 3)))
-            base_score = np.random.normal(75, 12)
-            
-        elif intent == 'active_intrusion':
-            data['speed_variance'][i] = max(0, np.random.normal(5.0, 2.5))
-            data['distance_to_restricted_zone'][i] = max(0, np.random.normal(0, 5)) # Might slightly glitch to outside bounds due to tracking noise
-            data['time_near_boundary'][i] = max(5, np.random.normal(20, 15))
-            data['time_inside_zone'][i] = max(1, np.random.normal(15, 10))
-            data['sudden_stops'][i] = max(0, int(np.random.normal(1, 2)))
-            base_score = np.random.normal(90, 8)
-            
-        # Add random systemic noise to simulate real-world CCTV tracking inaccuracies
-        data['speed_variance'][i] += np.random.normal(0, 0.5)
-        data['distance_to_restricted_zone'][i] += np.random.normal(0, 10)
-        
-        # Calculate Risk Score (with natural human variance)
-        final_risk = base_score * (1 + 0.15 * data['carrying_baggage'][i]) * data['time_of_day_multiplier'][i]
-        final_risk = max(0.0, min(100.0, final_risk + np.random.normal(0, 8)))
-        scores.append(round(final_risk, 2))
-        
-    df = pd.DataFrame(data)
-    df['intent_class'] = intents
-    df['historical_risk_score'] = scores
-    
-    # Shuffle dataset
-    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    intents = np.random.choice(CLASSES, size=num_rows, p=PROBS)
+    rows = []
+    for intent in intents:
+        p = INTENT_PARAMS[intent]
+        carrying_baggage = np.random.choice([0, 1], p=[0.8, 0.2])
+        time_of_day = np.random.uniform(0.8, 2.0)
+        inside = (intent == 'active_intrusion') and (np.random.random() < 0.6)
+
+        row = {
+            'speed_variance':              max(0, np.random.normal(p['speed_mu'], p['speed_sd'])),
+            'distance_to_restricted_zone': max(0, np.random.normal(p['dist_mu'],  p['dist_sd'])) if not inside else 0,
+            'time_near_boundary':          max(0, np.random.normal(p['time_near_mu'], p['time_near_sd'])),
+            'time_inside_zone':            max(0, np.random.normal(10, 5)) if inside else 0,
+            'sudden_stops':                max(0, int(np.random.normal(p['stops_mu'], p['stops_sd']))),
+            'carrying_baggage':            carrying_baggage,
+            'time_of_day_multiplier':      time_of_day,
+            'intent_class':                intent,
+        }
+        rows.append(row)
+
+    df = pd.DataFrame(rows).sample(frac=1, random_state=42).reset_index(drop=True)
     df.to_csv(output_path, index=False)
-    print(f"[SUCCESS] Generated noisy realistic dataset at {output_path}")
+    print(f"  [Dataset] Tabular: {len(df)} rows -> {output_path}")
+    return output_path
+
+
+def generate_sequence_dataset(num_samples=10000, seq_length=20, output_dir='ml/data'):
+    """Generates temporal sequence data for LSTM training. Shape: (N, seq_length, features)."""
+    np.random.seed(42)
+    os.makedirs(output_dir, exist_ok=True)
+
+    CLASS_MAP = {c: i for i, c in enumerate(CLASSES)}
+    intents = np.random.choice(CLASSES, size=num_samples, p=PROBS)
+    num_features = 7
+    X = np.zeros((num_samples, seq_length, num_features))
+    y = np.array([CLASS_MAP[i] for i in intents])
+
+    for i, intent in enumerate(intents):
+        p = INTENT_PARAMS[intent]
+        carrying = np.random.choice([0, 1], p=[0.8, 0.2])
+        tod = np.random.uniform(0.8, 2.0)
+
+        dist = np.random.normal(p['dist_mu'], p['dist_sd'])
+        time_near, time_inside, stops = 0, 0, 0
+
+        for t in range(seq_length):
+            if intent == 'passing_by':
+                dist = max(0, dist - np.random.normal(12, 4))
+                speed = max(0, np.random.normal(p['speed_mu'], p['speed_sd']))
+            elif intent == 'loitering':
+                dist = max(10, dist + np.random.normal(0, 8))
+                speed = max(0, np.random.normal(p['speed_mu'], p['speed_sd']))
+                if dist < 100: time_near += 1
+                if speed < 4: stops += 1
+            elif intent == 'scouting':
+                dist = max(5, dist - np.random.normal(1.5, 1))
+                speed = max(0, np.random.normal(p['speed_mu'], p['speed_sd']))
+                if dist < 50: time_near += 1
+                if speed < 3: stops += 1
+            elif intent == 'active_intrusion':
+                dist = max(0, dist - np.random.normal(22, 6))
+                speed = max(0, np.random.normal(p['speed_mu'], p['speed_sd']))
+                if dist < 50: time_near += 1
+                if dist <= 0: time_inside += 1
+
+            X[i, t] = [
+                max(0, speed + np.random.normal(0, 1.5)),
+                max(0, dist  + np.random.normal(0, 8)),
+                time_near,
+                time_inside,
+                stops,
+                carrying,
+                tod,
+            ]
+
+    # Shuffle
+    idx = np.random.permutation(num_samples)
+    X, y = X[idx], y[idx]
+
+    np.save(os.path.join(output_dir, 'X_seq.npy'), X)
+    np.save(os.path.join(output_dir, 'y_seq.npy'), y)
+    print(f"  [Dataset] Sequences: {X.shape} -> {output_dir}")
+    return os.path.join(output_dir, 'X_seq.npy'), os.path.join(output_dir, 'y_seq.npy')
+
 
 if __name__ == '__main__':
-    generate_dataset()
+    generate_tabular_dataset()
+    generate_sequence_dataset()

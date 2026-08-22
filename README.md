@@ -1,78 +1,175 @@
-# Gate: Advanced Intrusion Detection & Intent Prediction System
+# Gate v2: Advanced Intrusion Detection & Intent Prediction System
 
-Gate is a high-performance, ML-powered real-time tracking and perimeter security system. It leverages **Ultralytics YOLOv8** for precise person detection and **ByteTrack** for ultra-persistent ID tracking, paired with a custom Machine Learning backend to predict behavioral intent and assign dynamic risk scores.
+> **Research upgrade** — adds LSTM sequential trajectory modeling alongside the XGBoost/RF baseline, generates a split-screen demonstration video, and produces all graphs needed for a research paper submission.
 
-## Key Features
+---
 
-- **Ultra-Fast Edge Inference:** Optimized YOLOv8n execution on CUDA (FP16) with explicit I/O blocking to guarantee maximum FPS on hardware like the RTX 4050.
-- **Persistent Tracking:** Customized ByteTrack configuration with a 120-frame memory buffer to prevent ID switching during occlusion or frame drops.
-- **Behavioral Intent Matrix:** Custom Random Forest ML models evaluate speed variance, zone approach trajectory vectors, distances, and loitering times to predict granular states:
-  - 🟩 `Casual Transit`
-  - 🟨 `Approaching Boundary`
-  - 🟧 `Active Scouting` / `Suspicious Loitering`
-  - 🟥 `CRITICAL INTRUSION`
-  - 🟪 `Fleeing`
-- **Smart Pipeline Throttling:** Physics-based trajectory vector math (speed, direction) runs every frame natively, while heavy ML inference is intelligently throttled (3:1 cadence) using a low-latency tracking cache buffer.
-- **Dynamic Zone Mapping:** Includes an interactive tool (`map_zone.py`) to easily draw and serialize restricted polygonal zones, securely mapped into native 3D NumPy arrays for zero-friction OpenCV bounding math.
+## Hardware Configurations
 
-## Project Structure
+| Setting | Your Laptop (RTX 4050) | HPC Lab (RTX A5000) |
+|---------|----------------------|---------------------|
+| VRAM | 6 GB | **24 GB** |
+| RAM | 16 GB | **128 GB** |
+| CPU | Mobile Core i7 | **Xeon W-2265 (12C/24T)** |
+| YOLO Model | yolov8n (auto) | **yolov8x (auto)** |
+| Dataset Size | 10,000 samples | **50,000 samples** |
+| LSTM Hidden Size | 128 | **256** |
+| LSTM Layers | 2 | **3** |
+| Batch Size | 256 | **1024** |
+| Training Epochs | 40 | **60** |
+| DataLoader Workers | 4 | **12** |
+| Processing Width | 1280 px | **1920 px (Full HD)** |
 
-```text
-Gate/
-├── core/                  # Computer Vision & Tracking (detector.py, tracker.py, zone_manager.py)
-├── ml/                    # Behavioral Anomaly Models & Risk Scorer
-├── api/                   # Backend FastAPI routes and schemas
-├── dashboard/             # Web-based visual dashboard for monitoring
-├── data/                  # Serialized configs (zone_config.json)
-├── database/              # SQLite/PostgreSQL CRUD operations & Models
-├── pipeline/              # Batch video processing runners
-├── results/               # Compiled video outputs and Excel telemetry logs
-├── map_zone.py            # Interactive script to define the restricted polygon
-└── run_processor.py       # Main orchestrator script for the optimized pipeline
-```
+> All of these parameters are **auto-detected at runtime** based on available VRAM. No manual changes needed.
 
-## Installation
+---
 
-**1. Clone the repository:**
+## Quick Start (HPC / Any Machine)
+
+### 1 — Clone & Setup Environment
+
 ```bash
 git clone https://github.com/NightCrawler909/Gate.git
 cd Gate
-```
 
-**2. Set up Python Virtual Environment:**
-```bash
 python -m venv .venv
+# Linux/Mac
+source .venv/bin/activate
+# Windows
 .\.venv\Scripts\activate
 ```
 
-**3. Install Dependencies:**
+### 2 — Install Dependencies
+
 ```bash
-# Core requirements including OpenCV, Pandas, Scikit-Learn, Ultralytics
+# Install core packages
 pip install -r requirements.txt
 
-# Install PyTorch explicitly with CUDA 11.8 (or your specific GPU architecture)
+# Install PyTorch with CUDA (match your CUDA version — check with: nvcc --version)
+# CUDA 11.8
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# CUDA 12.1
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-## Usage
+### 3 — Place Your Video
 
-**Step 1: Map the Restricted Zone**  
-Draw a polygon over an initial frame of your target area to establish the security perimeter. Press `q` to save and quit.
+```
+Gate/
+└── input/
+    └── sample.mp4      ← PUT YOUR VIDEO HERE
+```
+
+### 4 — Map the Restricted Zone (One-Time Setup)
+
+Run this on a machine with a display (your laptop) **before** pushing to HPC:
+
 ```bash
 python map_zone.py
 ```
 
-**Step 2: Run the Processor**  
-Execute the highly optimized tracking pipeline. The system will process `sample.mp4` (or live feed), generate telemetry memory caching, execute ML predictions safely, and render output overlays without bottlenecking your CPU.
+Click on the video frame to draw the restricted polygon. Press `q` to save.
+This creates `data/zone_config.json` — commit it to the repo so HPC picks it up automatically.
+
+### 5 — Run the One-Click Pipeline
+
 ```bash
-python run_processor.py
+python run_pipeline.py
 ```
 
-Outputs, including the telemetry data (`intrusion_stats.xlsx`) and the fully rendered annotated video (`output_tracked.mp4`), will be saved inside the `results/` folder.
+That's it. The script will automatically:
+1. Generate training datasets (tabular + sequence)
+2. Train Random Forest, XGBoost, and LSTM models
+3. Process your video → split-screen demo video
+4. Generate all research paper graphs
 
-## Architecture Optimizations
+---
 
-This system was dramatically refactored to fix core bottlenecks associated with running deep learning models alongside UI rendering:
-- Replaced deep alpha-blending logic (`cv2.addWeighted`) with raw pixel writing (`cv2.polylines`).
-- Implemented `cv2` dimension rescaling explicitly prioritizing 720p to relieve CPU tensor strains.
-- Created `cached_tracks` dict mapping for 0-latency dictionary hits when accessing historical trajectory intents between ML cycles.
+## Output Files
+
+| File | Description |
+|------|-------------|
+| `results/demo_dual.mp4` | Split-screen demo video (XGBoost vs LSTM side-by-side) |
+| `results/demo_dual_telemetry.xlsx` | Per-frame telemetry spreadsheet |
+| `results/model_benchmark.csv` | Accuracy / Precision / Recall / F1 benchmark table |
+| `results/graphs/01_confusion_matrices.png` | Confusion matrices for all 3 models |
+| `results/graphs/02_model_comparison_bar.png` | Bar chart comparison |
+| `results/graphs/03_roc_curves.png` | Multi-class ROC curves |
+| `results/graphs/04_accuracy_vs_time.png` | Accuracy vs training time scatter |
+| `results/graphs/05_radar_chart.png` | Radar chart model comparison |
+
+---
+
+## Advanced Options
+
+```bash
+# Quick local test — only process first 500 frames
+python run_pipeline.py --max-frames 500
+
+# Custom video path
+python run_pipeline.py --video /path/to/your/video.mp4
+
+# Skip retraining (use existing saved models)
+python run_pipeline.py --skip-train
+
+# Change processing resolution (default 1280)
+python run_pipeline.py --width 960
+```
+
+---
+
+## Architecture
+
+```
+run_pipeline.py             ← One-click master script
+│
+├── ml/train_all.py         ← Trains RF + XGBoost + LSTM
+│   ├── ml/generate_dataset.py   ← Generates tabular & sequence data
+│   ├── ml/anomaly_detector.py   ← Random Forest model class
+│   └── ml/lstm_detector.py      ← PyTorch LSTM model class
+│
+├── run_processor.py        ← Dual-inference video processor
+│   ├── core/detector.py         ← YOLOv8 + ByteTrack wrapper
+│   └── core/zone_manager.py     ← Polygon zone math
+│
+└── ml/generate_graphs.py   ← Generates all 300 DPI paper figures
+```
+
+---
+
+## Models
+
+| Model | Type | Input | Research Role |
+|-------|------|-------|---------------|
+| **Random Forest** | Tree Ensemble | Single-frame snapshot (7 features) | Baseline |
+| **XGBoost** | Gradient Boosting | Single-frame snapshot (7 features) | Strong Baseline |
+| **LSTM** | Recurrent NN | 20-frame trajectory sequence (7×20) | Proposed Method |
+
+**Research Hypothesis:** Sequential LSTM modeling of trajectory history outperforms static snapshot classifiers for pre-breach behavioral intent prediction.
+
+---
+
+## Project Structure
+
+```
+Gate/
+├── input/                  ← PUT YOUR VIDEO HERE (sample.mp4)
+├── core/                   ← Computer Vision & Tracking
+│   ├── detector.py
+│   └── zone_manager.py
+├── ml/                     ← Machine Learning pipeline
+│   ├── generate_dataset.py
+│   ├── train_all.py
+│   ├── anomaly_detector.py
+│   ├── lstm_detector.py
+│   ├── generate_graphs.py
+│   └── data/               ← Saved models & datasets (auto-generated)
+├── data/
+│   └── zone_config.json    ← Zone polygon (commit this!)
+├── results/                ← All outputs (auto-generated)
+│   └── graphs/
+├── run_pipeline.py         ← ONE-CLICK MASTER SCRIPT
+├── run_processor.py        ← Video processing engine
+├── map_zone.py             ← Zone drawing tool
+└── requirements.txt
+```
