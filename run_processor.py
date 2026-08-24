@@ -12,18 +12,28 @@ Usage:
 import cv2
 import numpy as np
 import argparse
+import warnings
+
+# Suppress all sklearn and xgboost warnings during inference to prevent terminal I/O bottleneck
+warnings.filterwarnings("ignore")
 import json
 import os
 import torch
 import time
+import argparse
+import sys
 import pandas as pd
 import math
 from collections import deque
+from threading import Thread
+from queue import Queue
 from tqdm import tqdm
 
 from core.detector import PersonDetector
 from core.zone_manager import ZoneManager
+from core.test_case_manager import TestCaseManager
 from ml.anomaly_detector import AnomalyDetector
+from ml.xgboost_detector import XGBoostDetector
 from ml.risk_scorer import RiskScorer
 from ml.lstm_detector import LSTMDetector
 
@@ -85,34 +95,75 @@ def draw_panel_title(frame, text, color=(255,255,255)):
     cv2.rectangle(frame, (0, 0), (frame.shape[1], 50), (10, 10, 10), -1)
     cv2.putText(frame, text, (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2, cv2.LINE_AA)
 
+class ThreadedCamera:
+    def __init__(self, cap, start_frame=0):
+        self.cap = cap
+        if start_frame > 0:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        self.q = Queue(maxsize=128)
+        self.stopped = False
+        self.t = Thread(target=self.update, args=())
+        self.t.daemon = True
+        self.t.start()
 
-def draw_legend(frame):
-    """Draws a bottom legend strip."""
-    items = [
-        ('Casual Transit',       (80, 200, 80)),
-        ('Approaching',          (0, 220, 220)),
-        ('Scouting/Loitering',   (0, 165, 255)),
-        ('INTRUSION',            (30, 30, 255)),
-        ('Fleeing',              (200, 50, 200)),
-    ]
-    h, w = frame.shape[:2]
-    cv2.rectangle(frame, (0, h - 36), (w, h), (15, 15, 15), -1)
-    x = 10
-    for label, color in items:
-        cv2.rectangle(frame, (x, h - 28), (x + 14, h - 14), color, -1)
-        cv2.putText(frame, label, (x + 18, h - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (220,220,220), 1, cv2.LINE_AA)
-        x += len(label) * 8 + 40
+    def update(self):
+        while not self.stopped:
+            if not self.q.full():
+                ret, frame = self.cap.read()
+                if not ret:
+                    self.stopped = True
+                    return
+                self.q.put(frame)
+            else:
+                import time
+                time.sleep(0.01)
 
+    def read(self):
+        if self.stopped and self.q.empty():
+            return False, None
+        return True, self.q.get()
 
-# ─── Main ────────────────────────────────────────────────────────────────────
+    def release(self):
+        self.stopped = True
+        self.t.join()
+        self.cap.release()
+
+class ThreadedWriter:
+    def __init__(self, out_path, fps, size):
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        self.out = cv2.VideoWriter(out_path, fourcc, fps, size)
+        self.q = Queue(maxsize=128)
+        self.stopped = False
+        self.t = Thread(target=self.write_frames, args=())
+        self.t.daemon = True
+        self.t.start()
+
+    def write_frames(self):
+        while not self.stopped or not self.q.empty():
+            if not self.q.empty():
+                frame = self.q.get()
+                self.out.write(frame)
+            else:
+                import time
+                time.sleep(0.01)
+
+    def write(self, frame):
+        self.q.put(frame)
+
+    def release(self):
+        self.stopped = True
+        self.t.join()
+        self.out.release()
+
 def process_video(video_path, output_path, zone_config='data/zone_config.json',
-                  target_width=1280, max_frames=None):
+                  target_width=1280, max_frames=None, start_frame=0):
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     detector      = PersonDetector()
     zone_manager  = ZoneManager(config_path=zone_config)
     rf_detector   = AnomalyDetector()
+    xgb_detector  = XGBoostDetector()
     lstm_detector = LSTMDetector()
     risk_scorer   = RiskScorer()
 
@@ -124,6 +175,8 @@ def process_video(video_path, output_path, zone_config='data/zone_config.json',
     src_h   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps     = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    total_f -= start_frame
     if max_frames:
         total_f = min(total_f, max_frames)
 
@@ -140,30 +193,48 @@ def process_video(video_path, output_path, zone_config='data/zone_config.json',
     zone_pts_raw *= scale
     zone_pts = zone_pts_raw.astype(np.int32).reshape((-1, 1, 2))
 
-    # Output: side-by-side -> each panel is proc_w x proc_h
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out    = cv2.VideoWriter(output_path, fourcc, fps, (proc_w * 2, proc_h))
+    # Output: 2x2 grid -> each panel is proc_w x proc_h
+    out = ThreadedWriter(output_path, fps, (proc_w * 2, proc_h * 2))
 
     track_history = {}     # track_id -> deque(maxlen=20)
     telemetry     = []
     frames_done   = 0
+    
+    tc_manager = TestCaseManager(fps, 'final_research_paper_material/test_cases')
 
-    print(f"  Processing {total_f} frames at {proc_w}x{proc_h} ...")
+    print(f"  Processing {total_f} frames at {proc_w}x{proc_h} (2x2 grid) ...")
+    
+    # Swap cap for ThreadedCamera to start buffering
+    threaded_cap = ThreadedCamera(cap, start_frame=start_frame)
+    
+    # Pre-render the completely static Legend panel to save CPU allocations
+    pre_rendered_legend = np.zeros((proc_h, proc_w, 3), dtype=np.uint8)
+    cv2.putText(pre_rendered_legend, 'Legend & Telemetry', (50, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255,255,255), 3, cv2.LINE_AA)
+    y_pos = 150
+    for intent, color in INTENT_COLOR.items():
+        cv2.rectangle(pre_rendered_legend, (50, y_pos-25), (90, y_pos+15), color, -1)
+        cv2.putText(pre_rendered_legend, intent, (120, y_pos+5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (200,200,200), 2, cv2.LINE_AA)
+        y_pos += 60
+    
     pbar = tqdm(total=total_f, unit='frame')
 
     while True:
-        ret, frame = cap.read()
+        ret, frame = threaded_cap.read()
         if not ret or (max_frames and frames_done >= max_frames):
             break
 
         frame = cv2.resize(frame, (proc_w, proc_h))
         results = detector.track(frame, persist=True)
+        
+        # Pre-render zone on the base frame ONCE to save memory blending
+        draw_zone(frame, zone_pts)
 
-        # Base panels
+        # Base panels (copying the pre-rendered frame)
         panel_rf   = frame.copy()
+        panel_xgb  = frame.copy()
         panel_lstm = frame.copy()
-        draw_zone(panel_rf,   zone_pts)
-        draw_zone(panel_lstm, zone_pts)
+        
+        frame_telemetry = []
 
         if results.boxes is not None and results.boxes.id is not None:
             boxes    = results.boxes.xyxy.cpu().numpy()
@@ -197,9 +268,10 @@ def process_video(video_path, output_path, zone_config='data/zone_config.json',
                             action_vector = 'Moving Away'
                         else:
                             action_vector = 'Parallel'
-                        # Velocity arrow on both panels
+                        # Velocity arrow on panels
                         ep = (foot[0] + int(dx*2), foot[1] + int(dy*2))
                         cv2.arrowedLine(panel_rf,   foot, ep, (200,200,200), 2, tipLength=0.3)
+                        cv2.arrowedLine(panel_xgb,  foot, ep, (200,200,200), 2, tipLength=0.3)
                         cv2.arrowedLine(panel_lstm, foot, ep, (200,200,200), 2, tipLength=0.3)
 
                 features = {
@@ -221,49 +293,62 @@ def process_video(video_path, output_path, zone_config='data/zone_config.json',
                 rf_base    = rf_detector.predict_intent(features)
                 intent_rf  = resolve_intent(rf_base, is_inside, action_vector, speed, dist_to_zone, risk)
 
+                # ── XGBoost inference (single frame)
+                xgb_base   = xgb_detector.predict_intent(features)
+                intent_xgb = resolve_intent(xgb_base, is_inside, action_vector, speed, dist_to_zone, risk)
+
                 # ── LSTM inference (sequence)
                 seq         = [r['features'] for r in history]
                 lstm_base   = lstm_detector.predict_intent(seq)
                 intent_lstm = resolve_intent(lstm_base, is_inside, action_vector, speed, dist_to_zone, risk)
 
                 color_rf   = INTENT_COLOR.get(intent_rf,   (200,200,200))
+                color_xgb  = INTENT_COLOR.get(intent_xgb,  (200,200,200))
                 color_lstm = INTENT_COLOR.get(intent_lstm, (200,200,200))
 
                 trail = [r['position'] for r in history]
 
-                # Draw RF panel
+                # Draw panels
                 draw_hud(panel_rf,   tid, intent_rf,   color_rf,   x1, y1, x2, y2)
-
-                # Draw LSTM panel with comet tail only for non-casual
+                draw_hud(panel_xgb,  tid, intent_xgb,  color_xgb,  x1, y1, x2, y2)
+                
                 show_trail = intent_lstm != 'Casual Transit'
                 draw_hud(panel_lstm, tid, intent_lstm, color_lstm, x1, y1, x2, y2,
                          trail_pts=trail if show_trail else None)
-
-                telemetry.append({
+                
+                tel_record = {
                     'frame': frames_done,
                     'timestamp_s': round(frames_done / fps, 2),
                     'track_id': tid,
                     'rf_intent': intent_rf,
+                    'xgb_intent': intent_xgb,
                     'lstm_intent': intent_lstm,
                     'speed_px_s': round(speed, 2),
                     'dist_to_zone': round(dist_to_zone, 2),
                     'risk_score': round(risk, 2),
                     'action_vector': action_vector,
-                })
+                }
+                telemetry.append(tel_record)
+                frame_telemetry.append(tel_record)
 
         draw_panel_title(panel_rf,   'Baseline (Random Forest)')
-        draw_panel_title(panel_lstm, 'Sequence Model (LSTM)')
-        draw_legend(panel_rf)
-        draw_legend(panel_lstm)
-
-        dual = cv2.hconcat([panel_rf, panel_lstm])
-        out.write(dual)
+        draw_panel_title(panel_xgb,  'Strong Baseline (XGBoost)')
+        draw_panel_title(panel_lstm, 'Proposed Method (LSTM Sequence)')
+        
+        top_row = cv2.hconcat([panel_rf, panel_xgb])
+        bottom_row = cv2.hconcat([panel_lstm, pre_rendered_legend])
+        grid = cv2.vconcat([top_row, bottom_row])
+        
+        out.write(grid)
+        tc_manager.process_frame(grid, frame_telemetry)
+        
         frames_done += 1
         pbar.update(1)
 
     pbar.close()
-    cap.release()
+    threaded_cap.release()
     out.release()
+    tc_manager.release()
 
     # Save telemetry
     tel_path = output_path.replace('.mp4', '_telemetry.xlsx')
@@ -282,7 +367,8 @@ if __name__ == '__main__':
     parser.add_argument('--zone',   default='data/zone_config.json')
     parser.add_argument('--width',  type=int, default=1920,
                         help='Processing width. HPC default: 1920. Laptop: use 1280.')
+    parser.add_argument('--start-frame', type=int, default=0, help='Frame number to start processing from')
     parser.add_argument('--max-frames', type=int, default=None)
     args = parser.parse_args()
 
-    process_video(args.video, args.output, args.zone, args.width, args.max_frames)
+    process_video(args.video, args.output, args.zone, args.width, args.max_frames, args.start_frame)

@@ -19,7 +19,7 @@ def click_event(event, x, y, flags, params):
         cv2.imshow('Map Restricted Zone', frame)
 
 # 1. Try to load the video frame
-cap = cv2.VideoCapture('sample.mp4')
+cap = cv2.VideoCapture('input/sample.mp4')
 ret, temp_frame = cap.read()
 cap.release()
 
@@ -28,12 +28,12 @@ if ret:
     # .copy() prevents OpenCV from deleting the memory when cap is released
     frame = temp_frame.copy() 
 else:
-    print("Failed to load sample.mp4. Falling back to the uploaded screenshot...")
+    print("Failed to load input/sample.mp4. Falling back to the uploaded screenshot...")
     # Use the screenshot you uploaded earlier as a fallback
-    frame = cv2.imread('screenshot.png') 
+    frame = cv2.imread('input/screenshot.png') 
     
     if frame is None:
-        print("Error: Neither 'sample.mp4' nor 'screenshot.png' was found.")
+        print("Error: Neither 'input/sample.mp4' nor 'input/screenshot.png' was found.")
         sys.exit()
 
 print("Instructions:")

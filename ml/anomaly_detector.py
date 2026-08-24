@@ -46,6 +46,7 @@ class AnomalyDetector:
     def _load(self):
         if self.model is None:
             self.model = joblib.load(self.model_path)
+            self.model.n_jobs = 1  # Force single thread for single-sample inference
             self.scaler = joblib.load(self.scaler_path)
             self.encoder = joblib.load(self.encoder_path)
 

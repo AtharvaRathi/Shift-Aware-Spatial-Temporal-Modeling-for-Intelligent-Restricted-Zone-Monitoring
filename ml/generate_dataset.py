@@ -82,6 +82,15 @@ def generate_sequence_dataset(num_samples=10000, seq_length=20, output_dir='ml/d
                 if dist < 50: time_near += 1
                 if dist <= 0: time_inside += 1
 
+            # Realistic CCTV Edge Noise Injection (Jitter + Occlusion)
+            if np.random.random() < 0.15: # 15% chance of bounding box jitter
+                speed += np.random.normal(0, 5)
+                dist += np.random.normal(0, 15)
+            
+            # 5% chance of YOLO losing the track (occlusion dropout)
+            if np.random.random() < 0.05:
+                speed, dist = 0, 0
+                
             X[i, t] = [
                 max(0, speed + np.random.normal(0, 1.5)),
                 max(0, dist  + np.random.normal(0, 8)),
