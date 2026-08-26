@@ -8,7 +8,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
 from sklearn.preprocessing import label_binarize
 
-def generate_additional_research_graphs(input_csv='custom_dataset.csv', out_dir='results/research_analysis/'):
+def generate_additional_research_graphs(input_csv='ml/data/tabular_dataset.csv', out_dir='results/research_analysis/'):
     os.makedirs(out_dir, exist_ok=True)
     print(f"Loading dataset from {input_csv} to generate advanced scientific plots...")
     df = pd.read_csv(input_csv)

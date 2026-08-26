@@ -351,9 +351,9 @@ def process_video(video_path, output_path, zone_config='data/zone_config.json',
     tc_manager.release()
 
     # Save telemetry
-    tel_path = output_path.replace('.mp4', '_telemetry.xlsx')
+    tel_path = output_path.replace('.mp4', '_telemetry.csv')
     if telemetry:
-        pd.DataFrame(telemetry).to_excel(tel_path, index=False)
+        pd.DataFrame(telemetry).to_csv(tel_path, index=False)
         print(f"  Telemetry -> {tel_path}")
 
     print(f"  [OK] Video saved -> {output_path}  ({frames_done} frames)")
