@@ -1,0 +1,24 @@
+{
+    "experiment_id": "20260828_152239",
+    "timestamp": "2026-08-28T15:22:39.092660",
+    "config": {
+        "sequence_length": 15,
+        "epochs": 10,
+        "track_split_ratio": "70/15/15",
+        "f1_type": "weighted"
+    },
+    "models_tested": [
+        "Random Forest",
+        "XGBoost",
+        "LSTM",
+        "GRU",
+        "Hybrid"
+    ],
+    "results": {
+        "Random Forest": 0.8072655018580959,
+        "XGBoost": 0.8689549191537975,
+        "LSTM": 0.8904312030085639,
+        "GRU": 0.8642692513819198,
+        "Hybrid": 0.8662401838298347
+    }
+}
