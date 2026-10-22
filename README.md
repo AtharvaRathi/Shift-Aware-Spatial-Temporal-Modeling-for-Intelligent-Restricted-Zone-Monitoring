@@ -10,7 +10,7 @@
 
 ## 🎬 Live Demonstrations & Test Cases
 Recruiters and reviewers can view the final system in action below:
-* **[🎥 Watch the Video Demo (Google Drive)](#)** *(Insert Link Here)*
+* **[🎥 Watch the Video Demo (Google Drive)](https://drive.google.com/drive/folders/1XPZcmRp3bV3tBFcflgMaWMtF3CzxYUcN?usp=sharing)** *(Insert Link Here)*
 * **[📁 View Full Test Cases & Telemetry Outputs (Google Drive)](#)** *(Insert Link Here)*
 * **[📄 Read the Final Research Paper (PDF)](#)** *(Insert Link Here)*
 
