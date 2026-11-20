@@ -140,6 +140,18 @@ def plot_figure_14_feature_importance(rf_imp, xgb_imp):
     plt.title("Figure 14: Feature Importance (Static Models)")
     save_fig("fig_14_feature_importance")
 
+def plot_figure_15_sequential_feature_importance(lstm_imp, gru_imp):
+    df = pd.DataFrame({
+        'Feature': FEATURE_COLUMNS * 2,
+        'Importance': list(lstm_imp) + list(gru_imp),
+        'Model': ['LSTM'] * len(FEATURE_COLUMNS) + ['GRU'] * len(FEATURE_COLUMNS)
+    })
+    
+    plt.figure(figsize=(12, 8))
+    sns.barplot(data=df, y='Feature', x='Importance', hue='Model', orient='h', palette='crest')
+    plt.title("Figure 15: Permutation Feature Importance (Sequential Models)")
+    save_fig("fig_15_sequential_feature_importance")
+
 def plot_training_history(lstm_hist, gru_hist):
     plt.figure(figsize=(12, 5))
     
@@ -163,8 +175,8 @@ def plot_training_history(lstm_hist, gru_hist):
     
     save_fig("fig_12_13_training_history")
 
-def generate_all_visualizations(metrics, y_true_dict, y_pred_dict, alpha_hist, f1_hist, rf_imp, xgb_imp, lstm_hist, gru_hist):
-    print("Generating all 14 research figures...")
+def generate_all_visualizations(metrics, y_true_dict, y_pred_dict, alpha_hist, f1_hist, rf_imp, xgb_imp, lstm_imp, gru_imp, lstm_hist, gru_hist):
+    print("Generating all 15 research figures...")
     plot_figure_1_overall_f1(metrics)
     plot_figure_2_accuracy_metrics(metrics)
     plot_figure_3_static_vs_sequential(metrics)
@@ -174,5 +186,6 @@ def generate_all_visualizations(metrics, y_true_dict, y_pred_dict, alpha_hist, f
     plot_figure_8_fusion_alpha(alpha_hist, f1_hist)
     plot_figure_10_accuracy_vs_latency(metrics)
     plot_figure_14_feature_importance(rf_imp, xgb_imp)
+    plot_figure_15_sequential_feature_importance(lstm_imp, gru_imp)
     plot_training_history(lstm_hist, gru_hist)
     print("All visualizations saved successfully in research_framework/results/figures")

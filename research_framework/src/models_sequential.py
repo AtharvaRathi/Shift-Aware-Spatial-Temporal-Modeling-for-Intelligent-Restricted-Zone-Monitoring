@@ -107,7 +107,7 @@ class SequentialModelPipeline:
                 all_labels.extend(y_batch.cpu().numpy())
                 
         val_loss /= len(dataloader)
-        val_f1 = f1_score(all_labels, all_preds, average='macro')
+        val_f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=0)
         return val_loss, val_f1, all_preds
         
     def predict_proba(self, dataloader):
@@ -126,3 +126,39 @@ class SequentialModelPipeline:
         
     def load(self):
         self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+
+    def get_feature_importance(self, dataloader, feature_names=None):
+        if feature_names is None:
+            feature_names = ['speed_variance', 'distance_to_restricted_zone', 'time_near_boundary', 
+                             'time_inside_zone', 'sudden_stops', 'carrying_baggage', 'time_of_day_multiplier']
+        
+        _, baseline_f1, _ = self.evaluate(dataloader)
+        importances = []
+        
+        for i, feature in enumerate(feature_names):
+            all_preds = []
+            all_labels = []
+            self.model.eval()
+            with torch.no_grad():
+                for X_batch, y_batch in dataloader:
+                    X_shuffled = X_batch.clone().to(self.device)
+                    y_batch = y_batch.to(self.device)
+                    
+                    # Permute the feature column across the batch
+                    indices = torch.randperm(X_shuffled.size(0))
+                    X_shuffled[:, :, i] = X_shuffled[indices, :, i]
+                    
+                    outputs = self.model(X_shuffled)
+                    preds = torch.argmax(outputs, dim=1)
+                    all_preds.extend(preds.cpu().numpy())
+                    all_labels.extend(y_batch.cpu().numpy())
+                    
+            shuffled_f1 = f1_score(all_labels, all_preds, average='weighted', zero_division=0)
+            drop = baseline_f1 - shuffled_f1
+            importances.append((feature, max(0, drop)))
+            
+        importances_array = [x[1] for x in importances]
+        total = sum(importances_array)
+        if total > 0:
+            importances_array = [x / total for x in importances_array]
+        return importances_array

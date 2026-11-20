@@ -135,12 +135,15 @@ def main(use_real_data=False):
     df_results = pd.DataFrame(table_data)
     os.makedirs('research_framework/results/tables', exist_ok=True)
     df_results.to_csv('research_framework/results/tables/master_results.csv', index=False)
-    
     # 7. Visualization
+    lstm_imp = lstm.get_feature_importance(torch.utils.data.DataLoader(test_seq, batch_size=128))
+    gru_imp = gru.get_feature_importance(torch.utils.data.DataLoader(test_seq, batch_size=128))
+    
     generate_all_visualizations(
         metrics, y_true_dict, y_pred_dict,
         hybrid.alpha_history, hybrid.f1_history,
         rf.get_feature_importance(), xgb.get_feature_importance(),
+        lstm_imp, gru_imp,
         lstm.history, gru.history
     )
     
