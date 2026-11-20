@@ -9,11 +9,13 @@
 > **B.Tech Major Project Thesis Repository — Somaiya Vidyavihar University** <br>
 > *Does explicit temporal memory combined with boundary physics improve pre-intrusion behavioral intent prediction compared with snapshot-based machine learning?*
 
-## 🎬 Live Demonstrations & Test Cases
-Recruiters and reviewers can view the final system in action below:
+## 🎬 Live Demonstrations & Documentation
+Recruiters, reviewers, and operators can view the system outputs and manuals below:
 * **[🎥 Watch the Video Demo & Telemetry Outputs (Google Drive)](https://drive.google.com/drive/folders/1XPZcmRp3bV3tBFcflgMaWMtF3CzxYUcN?usp=sharing)**
 * **[📁 View Full Test Cases & Telemetry Outputs (Google Drive)](https://drive.google.com/drive/folders/1C1llGpaGta3qblRDAbTVEmHlP7fbB5yi?usp=sharing)**
 * **[📄 Read the Final Research Paper (PDF)](https://drive.google.com/drive/folders/1eAP5oFu-9kOzQJB-uBzCR86tXPtjD-ti?usp=sharing)**
+* **[📐 Read the Technical Manual (System Architecture & Math)](TECHNICAL_MANUAL.md)**
+* **[📘 Read the User Manual (Operational & Deployment Guide)](USER_MANUAL.md)**
 
 ---
 
@@ -148,6 +150,8 @@ python extract_test_cases.py
 
 ```text
 Major-Pro/
+├── TECHNICAL_MANUAL.md               # Production technical manual, math derivations & architecture
+├── USER_MANUAL.md                    # Operational user manual, HUD guide & troubleshooting
 ├── physics_advanced.py               # Core BPD, TE, FBD physics algorithms & HUD drawing engine
 ├── run_processor.py                  # Master 2x2 grid video processor & telemetry streamer
 ├── extract_test_cases.py             # Official TC_02 to TC_10 demonstration video extractor
